@@ -1,0 +1,7 @@
+{
+  "name": "HidraGo",
+  "description": "Aplicativo gamificado de hidratação inteligente com validação de consumo por fotos, desafios, sistema de níveis e recompensas.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

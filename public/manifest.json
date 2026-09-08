@@ -1,0 +1,25 @@
+{
+  "id": "/",
+  "name": "HidraGo - Beba. Comprove. Conquiste.",
+  "short_name": "HidraGo",
+  "description": "Aplicativo gamificado de hidratação inteligente com validação de consumo por fotos, desafios, sistema de níveis e recompensas.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#0070f3",
+  "background_color": "#ffffff",
+  "icons": [
+    {
+      "src": "https://lh3.googleusercontent.com/aida-public/AB6AXuBrKp5FG7GdV8xsHKrxpLBrmJDXKFW9hyB2aC1vJHzjGp-6PWMc-NVTJkhAgEFVRk1G1qj6XN4zWI0CATTPQxy00S1yCGPuPJXcz2wjw3bjExxl5eldPgZ8be98g3BndZglap4hPxwYRrMgR1rx7PuXURMkX39IZJPho7C9xIj64xjah3RLXzJ8YVndhd-SDH_xzzDQFI-SgeyfOlraYRKQYbvTNZvL0kx0bRFYrn0dnH_zsysyOCQ",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://lh3.googleusercontent.com/aida-public/AB6AXuBrKp5FG7GdV8xsHKrxpLBrmJDXKFW9hyB2aC1vJHzjGp-6PWMc-NVTJkhAgEFVRk1G1qj6XN4zWI0CATTPQxy00S1yCGPuPJXcz2wjw3bjExxl5eldPgZ8be98g3BndZglap4hPxwYRrMgR1rx7PuXURMkX39IZJPho7C9xIj64xjah3RLXzJ8YVndhd-SDH_xzzDQFI-SgeyfOlraYRKQYbvTNZvL0kx0bRFYrn0dnH_zsysyOCQ",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
