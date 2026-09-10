@@ -65,8 +65,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           {/* Mascot Avatar with Verified Badge */}
           <div className="relative w-16 h-16 rounded-full overflow-hidden bg-[#d8e2ff] flex items-center justify-center shrink-0 shadow-md ring-2 ring-[#0070f3]/20">
             <img
-              src={ASSETS.mascotProfile}
+              src={user.avatarUrl || ASSETS.mascotProfile}
               alt={user.name}
+              referrerPolicy="no-referrer"
               className="w-full h-full object-cover"
             />
             <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-[#00ccf9] border-2 border-white flex items-center justify-center">
@@ -364,7 +365,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           className="w-full py-3 rounded-2xl bg-white border border-[#d2dff5] text-[#0058c3] text-xs font-bold flex items-center justify-center gap-2 hover:bg-[#f0f6ff] active:scale-[0.98] transition-all cursor-pointer shadow-xs"
         >
           <UserCheck className="w-4 h-4" />
-          <span>Alterar Dados da Conta (Nome, Idade, E-mail)</span>
+          <span>Alternar Conta / Conectar com Google</span>
         </button>
 
         <div className="flex justify-center pt-1">

@@ -78,3 +78,13 @@ export interface WaterLogEntry {
   photoUrl2?: string;
   validated: boolean;
 }
+
+export interface AiAnalysisResult {
+  isBottleOrCup: boolean;
+  liquidType: string;
+  bottleCapacityMl: number;
+  liquidLevel: string;
+  estimatedIntakeMl: number;
+  confidence: number;
+  notes: string;
+}

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ScreenType, UserProfile, Challenge, RewardItem } from './types';
+import { ScreenType, UserProfile, Challenge, RewardItem, AiAnalysisResult } from './types';
 import {
   INITIAL_USER,
   MOCK_CHALLENGES,
@@ -12,6 +12,13 @@ import { BottomNav } from './components/BottomNav';
 import { NotificationModal } from './components/NotificationModal';
 import { InAppNotificationToast } from './components/InAppNotificationToast';
 import { notifications } from './utils/notifications';
+import {
+  ensureAuthUser,
+  syncUserProfileToFirebase,
+  saveIntakeRecordToFirebase,
+  loadUserProfileFromFirebase,
+  logoutUser,
+} from './lib/firebase';
 import { SplashScreen } from './components/screens/SplashScreen';
 import { LoginScreen } from './components/screens/LoginScreen';
 import { HomeScreen } from './components/screens/HomeScreen';
@@ -33,9 +40,25 @@ export default function App() {
   const [partners] = useState(MOCK_PARTNERS);
 
   const [photo1Url, setPhoto1Url] = useState<string>(ASSETS.bottleFull);
+  const [aiResult, setAiResult] = useState<AiAnalysisResult | null>(null);
+  const [photoNumberToday, setPhotoNumberToday] = useState<number>(1);
   const [isMobileFrame] = useState<boolean>(true);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState<boolean>(false);
+
+  // Initialize Firebase Auth on Mount
+  useEffect(() => {
+    ensureAuthUser()
+      .then(async (fbUser) => {
+        if (fbUser && !fbUser.isAnonymous) {
+          const remoteProfile = await loadUserProfileFromFirebase();
+          if (remoteProfile && remoteProfile.name) {
+            setUser((prev) => ({ ...prev, ...remoteProfile }));
+          }
+        }
+      })
+      .catch(console.warn);
+  }, []);
 
   // Listen for push notification quick drink and camera actions
   useEffect(() => {
@@ -62,25 +85,32 @@ export default function App() {
     notifications.updateUserState(user.currentIntakeMl, user.dailyGoalMl);
   }, [user.currentIntakeMl, user.dailyGoalMl]);
 
-  // Reset application to fresh new user state
-  const handleResetApp = () => {
+  // Reset application to fresh new user state & sign out of Firebase
+  const handleResetApp = async () => {
+    await logoutUser();
     setUser(INITIAL_USER);
     setChallenges(MOCK_CHALLENGES);
     setRewards(MOCK_REWARDS);
     setCurrentScreen('splash');
   };
 
-  // Handle user registration / login with Name, Age, Email
-  const handleLogin = (data: { name: string; age: number; email: string }) => {
-    setUser((prev) => {
-      return {
-        ...prev,
-        name: data.name,
-        age: data.age,
-        email: data.email,
-        dailyGoalMl: 3000,
-      };
-    });
+  // Handle user registration / login with Firebase
+  const handleLogin = (data: { name: string; age?: number; email: string; profile?: UserProfile }) => {
+    if (data.profile) {
+      setUser(data.profile);
+    } else {
+      setUser((prev) => {
+        const updated = {
+          ...prev,
+          name: data.name,
+          age: data.age || prev.age,
+          email: data.email,
+          dailyGoalMl: 3000,
+        };
+        syncUserProfileToFirebase(updated).catch(console.warn);
+        return updated;
+      });
+    }
     setCurrentScreen('home');
   };
 
@@ -108,20 +138,46 @@ export default function App() {
     });
   };
 
-  // Complete photo validation
-  const handleCompletePhotoFlow = () => {
+  // Complete photo validation with AI Analysis and Firebase Firestore save
+  const handleCompletePhotoFlow = (photo2Url: string, ai: AiAnalysisResult) => {
+    setAiResult(ai);
+    const addedMl = ai.estimatedIntakeMl || user.defaultBottleMl || 500;
+
+    // Enforce 6 photos/day and 1-hour interval between registrations
+    notifications.recordPhotoRegistration(addedMl);
+    const windowSt = notifications.getWindowStatus();
+    setPhotoNumberToday(windowSt.photosTakenToday);
+
     setUser((prev) => {
-      const addedMl = prev.defaultBottleMl;
       const newIntake = prev.currentIntakeMl + addedMl;
       const newXp = prev.currentXp + 50;
       const newPoints = prev.points + 50;
-      return {
+      const updatedUser = {
         ...prev,
         currentIntakeMl: newIntake,
         currentXp: newXp,
         points: newPoints,
       };
+
+      // Sync to Firebase
+      syncUserProfileToFirebase(updatedUser).catch(console.warn);
+
+      return updatedUser;
     });
+
+    // Save permanent record to Firebase Firestore
+    saveIntakeRecordToFirebase({
+      amountMl: addedMl,
+      liquidType: ai.liquidType,
+      bottleCapacityMl: ai.bottleCapacityMl,
+      liquidLevel: ai.liquidLevel,
+      aiConfidence: ai.confidence,
+      aiNotes: ai.notes,
+      photo1Url: photo1Url,
+      photo2Url: photo2Url,
+      photoNumberToday: windowSt.photosTakenToday,
+    }).catch(console.warn);
+
     setCurrentScreen('validation');
   };
 
@@ -225,15 +281,17 @@ export default function App() {
               <RegisterPhoto2Screen
                 photo1Url={photo1Url}
                 onBack={() => setCurrentScreen('register_photo_1')}
-                onComplete={() => {
-                  handleCompletePhotoFlow();
+                onComplete={(p2, ai) => {
+                  handleCompletePhotoFlow(p2, ai);
                 }}
               />
             )}
 
             {currentScreen === 'validation' && (
               <ValidationScreen
-                amountMl={user.defaultBottleMl}
+                amountMl={aiResult?.estimatedIntakeMl || user.defaultBottleMl}
+                aiResult={aiResult}
+                photoNumberToday={photoNumberToday}
                 onContinue={() => {
                   // After validation, show celebratory level up or return to home
                   if (user.currentXp >= 1300) {

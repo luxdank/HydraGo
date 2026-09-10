@@ -7,7 +7,6 @@ import {
   Clock,
   Sparkles,
   X,
-  ShieldCheck,
   Send,
   Camera,
   Check,
@@ -167,28 +166,6 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
               </span>
             </div>
           )}
-
-          {/* Browser Permission Status Card */}
-          <div className="p-3 rounded-2xl bg-[#f8faff] border border-[#d9e5fc] flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-[#111b2f] flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-[#0070f3]" />
-                Notificações no Dispositivo:
-              </span>
-              {permission === 'granted' ? (
-                <span className="px-2 py-0.5 rounded-full bg-[#dcfce7] text-[#15803d] text-[11px] font-bold flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" /> Ativadas
-                </span>
-              ) : (
-                <button
-                  onClick={handleRequestPermission}
-                  className="px-2.5 py-1 rounded-lg bg-[#0070f3] text-white text-[11px] font-bold hover:bg-[#0058c3] transition-colors"
-                >
-                  Permitir Push
-                </button>
-              )}
-            </div>
-          </div>
 
           {/* 6 Fixed Schedule Slots List */}
           <div className="flex flex-col gap-2">

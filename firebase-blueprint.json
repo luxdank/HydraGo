@@ -1,0 +1,57 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with hydration stats, gamification XP, and daily goals",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique user ID" },
+        "name": { "type": "string", "description": "Full name of the user" },
+        "email": { "type": "string", "description": "Email address" },
+        "age": { "type": "number", "description": "Age of the user" },
+        "level": { "type": "number", "description": "Current gamification level" },
+        "levelTitle": { "type": "string", "description": "Title associated with current level" },
+        "currentXp": { "type": "number", "description": "Current XP points" },
+        "maxXp": { "type": "number", "description": "XP required for next level" },
+        "points": { "type": "number", "description": "Redeemable points for partner coupons" },
+        "streakDays": { "type": "number", "description": "Consecutive days hitting goal" },
+        "dailyGoalMl": { "type": "number", "description": "Daily hydration goal (3000 ml)" },
+        "currentIntakeMl": { "type": "number", "description": "Intake accumulated today in ml" },
+        "lastPhotoTimestamp": { "type": "number", "description": "Timestamp of last photo registration" },
+        "photosCountToday": { "type": "number", "description": "Photos taken today (max 6)" },
+        "lastActiveDate": { "type": "string", "description": "Date string for resetting daily counters" }
+      },
+      "required": ["id", "name", "dailyGoalMl", "currentIntakeMl"]
+    },
+    "IntakeRecord": {
+      "title": "IntakeRecord",
+      "description": "Hydration photo validation log with AI analysis results",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique record ID" },
+        "userId": { "type": "string", "description": "Owner user ID" },
+        "amountMl": { "type": "number", "description": "Amount of water consumed in ml" },
+        "liquidType": { "type": "string", "description": "AI detected liquid type (e.g. Água mineral)" },
+        "bottleCapacityMl": { "type": "number", "description": "AI estimated bottle capacity in ml" },
+        "liquidLevel": { "type": "string", "description": "AI detected level (cheio, metade, vazio)" },
+        "aiConfidence": { "type": "number", "description": "AI confidence score between 0 and 1" },
+        "aiNotes": { "type": "string", "description": "AI motivational feedback message" },
+        "photo1Url": { "type": "string", "description": "Photo of full bottle or liquid" },
+        "photo2Url": { "type": "string", "description": "Photo of bottle scale/empty" },
+        "photoNumberToday": { "type": "number", "description": "Index of photo today (1 to 6)" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["id", "userId", "amountMl", "liquidType", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Collection of user profile documents"
+    },
+    "/users/{userId}/intakes/{intakeId}": {
+      "schema": { "$ref": "#/entities/IntakeRecord" },
+      "description": "Subcollection of intake validation records"
+    }
+  }
+}

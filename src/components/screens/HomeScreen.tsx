@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, Challenge, ScreenType } from '../../types';
-import { Camera, ChevronRight, Trophy, Plus, BellRing, Lock, Clock, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Camera, ChevronRight, Trophy, Plus, BellRing, Lock, Clock, CheckCircle2 } from 'lucide-react';
 import { sounds } from '../../utils/audio';
 import { notifications, NotificationWindowStatus } from '../../utils/notifications';
 import { PhotoWindowLockModal } from '../PhotoWindowLockModal';
@@ -52,8 +52,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   const handleRegisterWaterClick = () => {
     sounds.playWaterDrop();
-    // RULE: "Usuário só poderá registras a foto nos horários da notificação."
-    if (windowStatus.isOpen) {
+    // 6 photos per day with 1h interval between registrations
+    if (windowStatus.canTakePhoto) {
       onNavigate('register_photo_1');
     } else {
       setIsLockModalOpen(true);
@@ -120,51 +120,63 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </span>
         </div>
       ) : (
-        /* Notification Window Status Pill */
+        /* Photo Registration 6-Daily-Quota & 1-Hour-Interval Status Pill */
         <div
           onClick={() => {
-            if (!windowStatus.isOpen) {
+            if (!windowStatus.canTakePhoto) {
               setIsLockModalOpen(true);
             } else {
               onNavigate('register_photo_1');
             }
           }}
           className={`w-full p-3 rounded-2xl border flex items-center justify-between cursor-pointer transition-all ${
-            windowStatus.isOpen
+            windowStatus.canTakePhoto
               ? 'bg-[#eff8ff] border-[#0070f3] text-[#0058c3] shadow-xs'
               : 'bg-[#f8faff] border-[#e2eaf8] text-[#556075]'
           }`}
         >
           <div className="flex items-center gap-2.5">
-            {windowStatus.isOpen ? (
+            {windowStatus.canTakePhoto ? (
               <span className="relative flex h-3 w-3">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#0070f3] opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-[#0070f3]"></span>
               </span>
+            ) : windowStatus.reason === 'max_reached' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             ) : (
-              <Lock className="w-4 h-4 text-[#d92d20]" />
+              <Clock className="w-4 h-4 text-amber-500" />
             )}
             <div className="flex flex-col text-left">
               <span className="text-xs font-bold text-[#111b2f]">
-                {windowStatus.isOpen
-                  ? `Janela de Foto Aberta (${windowStatus.activeSlot?.time || 'Agora'})`
-                  : `Foto Bloqueada: Próxima às ${windowStatus.nextSlot?.time || '08:00'}`}
+                {windowStatus.canTakePhoto
+                  ? `Foto ${windowStatus.photosTakenToday + 1} de 6 Liberada`
+                  : windowStatus.reason === 'max_reached'
+                  ? '6 Fotos Concluídas Hoje'
+                  : `Aguarde ${windowStatus.minutesUntilNextPhoto} min (Intervalo de 1h)`}
               </span>
               <span className="text-[11px] text-[#556075]">
-                {windowStatus.isOpen
-                  ? `Válida por mais ${windowStatus.minutesRemainingInActiveWindow} min • Validação IA liberada`
-                  : `Abre em ${formatMinutesRemaining(windowStatus.minutesUntilNext)} (1 das 6 doses diárias)`}
+                {windowStatus.canTakePhoto
+                  ? 'Câmera e IA prontas para análise da garrafa'
+                  : windowStatus.reason === 'max_reached'
+                  ? 'Meta diária de 6 registros atingida com sucesso'
+                  : `Última foto recente • Toque para ver detalhes ou liberar`}
               </span>
             </div>
           </div>
           <span
-            className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
-              windowStatus.isOpen
+            className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+              windowStatus.canTakePhoto
                 ? 'bg-[#0070f3] text-white'
-                : 'bg-[#fff0f0] text-[#d92d20] border border-[#fee4e2]'
+                : windowStatus.reason === 'max_reached'
+                ? 'bg-[#ecfdf3] text-[#027a48] border border-[#a6f4c5]'
+                : 'bg-amber-50 text-amber-700 border border-amber-200'
             }`}
           >
-            {windowStatus.isOpen ? 'Liberada' : 'Aguardar'}
+            {windowStatus.canTakePhoto
+              ? `${windowStatus.photosTakenToday}/6 Pronta`
+              : windowStatus.reason === 'max_reached'
+              ? 'Concluído'
+              : `${windowStatus.minutesUntilNextPhoto}m`}
           </span>
         </div>
       )}
@@ -249,34 +261,47 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </div>
       </div>
 
-      {/* Primary Action: Registrar Água Button (Enforces Notification Window) */}
+      {/* Primary Action: Registrar Água Button (6 photos/day with 1h cooldown) */}
       <div className="flex flex-col gap-1.5">
         <button
           onClick={handleRegisterWaterClick}
           id="btn-registrar-camera"
           className={`w-full h-14 rounded-full font-bold text-base flex items-center justify-center gap-2 active:scale-[0.98] transition-all cursor-pointer shadow-md ${
-            windowStatus.isOpen
+            windowStatus.canTakePhoto
               ? 'bg-[#0070f3] text-white hover:bg-[#0058c3] shadow-[0_10px_20px_-2px_rgba(0,112,243,0.35)]'
-              : 'bg-slate-100 border border-slate-300 text-slate-700 hover:bg-slate-200'
+              : windowStatus.reason === 'max_reached'
+              ? 'bg-[#ecfdf3] border border-[#a6f4c5] text-[#027a48]'
+              : 'bg-amber-50 border border-amber-200 text-amber-900 hover:bg-amber-100'
           }`}
         >
-          {windowStatus.isOpen ? (
+          {windowStatus.canTakePhoto ? (
             <>
               <Camera className="w-5 h-5" />
-              <span>Registrar água (Janela Aberta • 500 ml)</span>
+              <span>
+                Tirar Foto de Água ({windowStatus.photosTakenToday + 1}ª de 6 hoje)
+              </span>
+            </>
+          ) : windowStatus.reason === 'max_reached' ? (
+            <>
+              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+              <span>6 Fotos Concluídas Hoje (Meta Batida)</span>
             </>
           ) : (
             <>
-              <Lock className="w-5 h-5 text-[#d92d20]" />
-              <span>Registrar água (Abre às {windowStatus.nextSlot?.time || '08:00'})</span>
+              <Clock className="w-5 h-5 text-amber-600" />
+              <span>
+                Aguarde {windowStatus.minutesUntilNextPhoto} min (Intervalo de 1h)
+              </span>
             </>
           )}
         </button>
 
         <p className="text-[11px] text-[#717d96] text-center">
-          {windowStatus.isOpen
-            ? 'Janela de notificação ativa! Tire fotos da garrafa cheia e vazia para validar.'
-            : '🔒 Foto permitida apenas nos 6 horários diários de notificação. Clique para ver horários.'}
+          {windowStatus.canTakePhoto
+            ? 'Câmera liberada! Tire a foto da garrafa para a IA Gemini analisar líquido e volume.'
+            : windowStatus.reason === 'max_reached'
+            ? '🎉 Você atingiu as 6 fotos do dia! A meta diária de 3.000 ml foi concluída.'
+            : '🔒 Intervalo de 1 hora entre cada foto. Toque no botão para ver opções ou liberar p/ teste.'}
         </p>
       </div>
 
@@ -348,24 +373,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               </div>
             );
           })}
-        </div>
-
-        {/* Simulation / Quick Unlock Helper */}
-        <div className="flex items-center justify-between pt-1 border-t border-[#f1f3ff]">
-          <span className="text-[11px] text-[#556075]">
-            Quer testar a câmera agora?
-          </span>
-          <button
-            onClick={() => {
-              sounds.playWaterDrop();
-              notifications.openTestWindow(30);
-              onNavigate('register_photo_1');
-            }}
-            className="text-[11px] font-bold text-[#0070f3] hover:underline flex items-center gap-1 cursor-pointer"
-          >
-            <Sparkles className="w-3 h-3 text-[#0070f3]" />
-            Simular Janela de Foto
-          </button>
         </div>
       </div>
 

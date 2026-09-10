@@ -1,5 +1,5 @@
 import React from 'react';
-import { Clock, Lock, Sparkles, Plus, X, Bell } from 'lucide-react';
+import { Clock, Lock, Sparkles, Plus, X, Camera, CheckCircle2 } from 'lucide-react';
 import { notifications, NotificationWindowStatus } from '../utils/notifications';
 import { sounds } from '../utils/audio';
 
@@ -22,12 +22,7 @@ export const PhotoWindowLockModal: React.FC<PhotoWindowLockModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const formatMinutesRemaining = (minutes: number) => {
-    if (minutes < 60) return `${minutes} min`;
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return mins > 0 ? `${hours}h ${mins}min` : `${hours}h`;
-  };
+  const isMaxReached = status.photosTakenToday >= status.maxPhotosPerDay;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -35,15 +30,23 @@ export const PhotoWindowLockModal: React.FC<PhotoWindowLockModalProps> = ({
         {/* Header */}
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-[#fff0f0] text-[#d92d20] flex items-center justify-center shrink-0 border border-[#fee4e2]">
-              <Lock className="w-5 h-5" />
+            <div
+              className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border ${
+                isMaxReached
+                  ? 'bg-[#ecfdf3] text-[#027a48] border-[#a6f4c5]'
+                  : 'bg-[#eff8ff] text-[#0070f3] border-[#b9e6fe]'
+              }`}
+            >
+              {isMaxReached ? <CheckCircle2 className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
             </div>
             <div>
               <h3 className="text-base font-extrabold text-[#111b2f]">
-                Registro por Foto Bloqueado
+                {isMaxReached ? '6 Fotos Concluídas!' : 'Intervalo de 1 Hora'}
               </h3>
               <p className="text-xs text-[#556075]">
-                Disponível apenas nos horários de notificação
+                {isMaxReached
+                  ? 'Limite diário de fotos atingido'
+                  : 'Aguarde 1 hora entre cada foto de água'}
               </p>
             </div>
           </div>
@@ -55,92 +58,98 @@ export const PhotoWindowLockModal: React.FC<PhotoWindowLockModalProps> = ({
           </button>
         </div>
 
-        {/* Next Window Highlight Banner */}
-        <div className="p-3.5 rounded-2xl bg-gradient-to-r from-[#0070f3]/10 to-[#00ccf9]/10 border border-[#0070f3]/20 mb-3.5 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <Clock className="w-4 h-4 text-[#0070f3] shrink-0" />
-            <div className="flex flex-col">
-              <span className="text-[11px] font-bold text-[#0058c3] uppercase tracking-wider">
-                Próxima Notificação
-              </span>
-              <span className="text-sm font-extrabold text-[#111b2f]">
-                {status.nextSlot ? `${status.nextSlot.time}` : '08:00'}
-              </span>
-            </div>
+        {/* Progress: 6 photos per day badge */}
+        <div className="p-3.5 rounded-2xl bg-[#f8faff] border border-[#e8edff] mb-3.5">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-bold text-[#111b2f]">
+              Fotos de hoje ({status.photosTakenToday}/{status.maxPhotosPerDay})
+            </span>
+            <span className="text-[11px] font-extrabold text-[#0070f3]">
+              {status.photosTakenToday * 500} ml de 3.000 ml
+            </span>
           </div>
-          <span className="px-2.5 py-1 rounded-full bg-[#0070f3] text-white text-xs font-bold shadow-xs">
-            em {formatMinutesRemaining(status.minutesUntilNext)}
-          </span>
-        </div>
 
-        {/* Explanation text */}
-        <p className="text-xs text-[#556075] leading-relaxed mb-3">
-          Para garantir hidratação fracionada e saudável, a foto só pode ser registrada durante as <strong>6 notificações diárias</strong> (500 ml cada = 3.000 ml no dia).
-        </p>
-
-        {/* 6 Schedule Slots Grid */}
-        <div className="flex flex-col gap-1.5 mb-4">
-          <span className="text-[11px] font-bold text-[#414754] uppercase tracking-wider flex items-center gap-1">
-            <Bell className="w-3 h-3 text-[#0070f3]" />
-            Horários das 6 Doses Diárias:
-          </span>
-          <div className="grid grid-cols-2 gap-2">
-            {status.slots.map(({ slot, status: slotStatus }) => {
-              const isSlotCompleted = slotStatus === 'completed';
-              const isSlotActive = slotStatus === 'active';
-
+          {/* 6 progress dots */}
+          <div className="grid grid-cols-6 gap-1.5">
+            {Array.from({ length: status.maxPhotosPerDay }).map((_, index) => {
+              const isTaken = index < status.photosTakenToday;
               return (
                 <div
-                  key={slot.id}
-                  className={`p-2 rounded-xl border flex items-center justify-between text-xs transition-colors ${
-                    isSlotCompleted
-                      ? 'bg-[#ecfdf3] border-[#a6f4c5] text-[#027a48]'
-                      : isSlotActive
-                      ? 'bg-[#eff8ff] border-[#0070f3] text-[#0070f3] font-bold ring-1 ring-[#0070f3]'
-                      : 'bg-[#f8faff] border-[#e8edff] text-[#414754]'
+                  key={index}
+                  className={`h-2 rounded-full transition-all ${
+                    isTaken ? 'bg-[#00c48c]' : 'bg-[#e0e8ff]'
                   }`}
-                >
-                  <div className="flex flex-col">
-                    <span className="font-extrabold text-sm">{slot.time}</span>
-                    <span className="text-[10px] opacity-80">{slot.doseNumber}ª Dose (500ml)</span>
-                  </div>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-black/5">
-                    {isSlotCompleted ? '✓ Bebido' : isSlotActive ? 'Aberta!' : 'Aguarde'}
-                  </span>
-                </div>
+                  title={`Foto ${index + 1}`}
+                />
               );
             })}
           </div>
         </div>
 
-        {/* Goal met notice if applicable */}
-        {status.isGoalMet && (
-          <div className="p-3 rounded-2xl bg-[#ecfdf3] border border-[#a6f4c5] text-[#027a48] mb-3 text-xs flex items-center gap-2">
-            <Sparkles className="w-4 h-4 shrink-0" />
+        {/* Status card */}
+        {isMaxReached ? (
+          <div className="p-4 rounded-2xl bg-[#ecfdf3] border border-[#a6f4c5] text-[#027a48] mb-4 text-xs flex flex-col gap-1">
+            <span className="font-extrabold text-sm flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4" /> Parabéns pela meta!
+            </span>
             <span>
-              <strong>Meta batida!</strong> Você já concluiu 3.000 ml hoje. As notificações foram pausadas para seu descanso!
+              Você já registrou todas as 6 fotos do dia e acumulou sua hidratação de 3.000 ml.
+            </span>
+          </div>
+        ) : (
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-[#0070f3]/10 to-[#00ccf9]/10 border border-[#0070f3]/20 mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <Clock className="w-5 h-5 text-[#0070f3] shrink-0" />
+              <div className="flex flex-col">
+                <span className="text-[11px] font-bold text-[#0058c3] uppercase tracking-wider">
+                  Próxima foto liberada em
+                </span>
+                <span className="text-lg font-black text-[#111b2f]">
+                  {status.minutesUntilNextPhoto} minutos
+                </span>
+              </div>
+            </div>
+            <span className="px-2.5 py-1 rounded-full bg-[#0070f3] text-white text-[11px] font-bold shadow-xs">
+              1h intervalo
             </span>
           </div>
         )}
 
+        <p className="text-xs text-[#556075] leading-relaxed mb-4">
+          O HidraGo distribui o consumo ao longo do dia com <strong>6 registros de 500 ml</strong> espaçados por pelo menos <strong>1 hora</strong> para melhor absorção da água.
+        </p>
+
         {/* Action Buttons */}
-        <div className="flex flex-col gap-2 pt-1 border-t border-[#e8edff]">
-          {/* Test mode button for instant testing */}
+        <div className="flex flex-col gap-2 pt-2 border-t border-[#e8edff]">
+          {/* Test bypass button for testing */}
           <button
             onClick={() => {
               sounds.playWaterDrop();
-              notifications.openTestWindow(30);
+              notifications.bypassCooldownForTesting();
               onUnlockTestWindow();
               onProceedToCamera();
             }}
             className="w-full py-3 px-3 rounded-2xl bg-gradient-to-r from-[#0070f3] to-[#00ccf9] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md hover:brightness-110 active:scale-[0.98] transition-all cursor-pointer"
           >
             <Sparkles className="w-4 h-4" />
-            <span>Simular Horário de Notificação (Liberar Câmera)</span>
+            <span>Liberar Agora (Ignorar Intervalo p/ Teste)</span>
           </button>
 
+          {isMaxReached && (
+            <button
+              onClick={() => {
+                sounds.playWaterDrop();
+                notifications.resetPhotosForTesting();
+                onClose();
+              }}
+              className="w-full py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-[#414754] font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+            >
+              <span>Reiniciar Fotos do Dia (Modo Teste)</span>
+            </button>
+          )}
+
           {/* Quick hydration alternative */}
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-2 mt-1">
             <button
               onClick={() => {
                 onQuickAddWater(500);
@@ -155,7 +164,7 @@ export const PhotoWindowLockModal: React.FC<PhotoWindowLockModalProps> = ({
               onClick={onClose}
               className="py-2.5 px-4 rounded-xl text-xs font-bold text-[#556075] hover:bg-slate-100 transition-colors"
             >
-              Entendido
+              Fechar
             </button>
           </div>
         </div>

@@ -23,16 +23,28 @@ export interface DailyNotificationSlot {
   body: string;
 }
 
-export interface NotificationWindowStatus {
+export interface PhotoRegistrationStatus {
+  canTakePhoto: boolean;
+  reason: 'ready' | 'cooldown' | 'max_reached';
+  photosTakenToday: number; // 0 to 6
+  maxPhotosPerDay: number; // 6
+  photosRemainingToday: number;
+  minutesUntilNextPhoto: number; // 0 if ready, or minutes until 1 hour elapsed
+  lastPhotoTimestamp: number | null;
+  isGoalMet: boolean;
+  isBypassed: boolean;
+  currentIntakeMl: number;
+  dailyGoalMl: number;
+}
+
+export interface NotificationWindowStatus extends PhotoRegistrationStatus {
+  // Backwards compatibility aliases
   isOpen: boolean;
   activeSlot: DailyNotificationSlot | null;
   nextSlot: DailyNotificationSlot | null;
   minutesUntilNext: number;
   minutesRemainingInActiveWindow: number;
-  isGoalMet: boolean;
   isTestMode: boolean;
-  currentIntakeMl: number;
-  dailyGoalMl: number;
   slots: {
     slot: DailyNotificationSlot;
     status: 'completed' | 'active' | 'upcoming' | 'missed';
@@ -43,7 +55,7 @@ type NotificationListener = (notification: InAppNotification) => void;
 type PermissionListener = (state: NotificationPermissionState) => void;
 type WindowListener = (status: NotificationWindowStatus) => void;
 
-// 6 Daily notifications spaced across waking hours to meet 3.000 ml (6 x 500 ml)
+// 6 Daily notification reminders to encourage drinking 3.000 ml
 export const DAILY_NOTIFICATION_SLOTS: DailyNotificationSlot[] = [
   {
     id: 'slot-1',
@@ -52,8 +64,8 @@ export const DAILY_NOTIFICATION_SLOTS: DailyNotificationSlot[] = [
     minutes: 0,
     targetMl: 500,
     doseNumber: 1,
-    title: '💧 1ª Dose Matinal: Despertar & Ativação (500 ml)',
-    body: 'Beba 500 ml para acordar o corpo e ativar o metabolismo. A janela de registro por foto está aberta!',
+    title: '💧 1ª Dose: Despertar & Ativação (500 ml)',
+    body: 'Comece o dia com 500 ml de água para acelerar o metabolismo e hidratar o corpo!',
   },
   {
     id: 'slot-2',
@@ -63,7 +75,7 @@ export const DAILY_NOTIFICATION_SLOTS: DailyNotificationSlot[] = [
     targetMl: 500,
     doseNumber: 2,
     title: '⚡ 2ª Dose: Foco & Produtividade (500 ml)',
-    body: 'Pausa para se hidratar! Tome mais 500 ml para manter o cérebro afiado. Registre sua foto!',
+    body: 'Hora da segunda dose! Tome mais 500 ml e registre sua garrafa para ganhar XP.',
   },
   {
     id: 'slot-3',
@@ -73,7 +85,7 @@ export const DAILY_NOTIFICATION_SLOTS: DailyNotificationSlot[] = [
     targetMl: 500,
     doseNumber: 3,
     title: '🥗 3ª Dose: Digestão & Equilíbrio (500 ml)',
-    body: 'Beba 500 ml para ajudar na digestão e manter o ritmo do dia. Abra a câmera para comprovar!',
+    body: 'Beba 500 ml pós-almoço para ajudar na digestão e manter seu ritmo de hidratação.',
   },
   {
     id: 'slot-4',
@@ -83,7 +95,7 @@ export const DAILY_NOTIFICATION_SLOTS: DailyNotificationSlot[] = [
     targetMl: 500,
     doseNumber: 4,
     title: '🔥 4ª Dose: Disposição da Tarde (500 ml)',
-    body: 'Evite a queda de energia da tarde: beba 500 ml de água fresca e continue ganhando XP!',
+    body: 'Evite o cansaço da tarde com mais 500 ml de água fresca. Abra a câmera do HidraGo!',
   },
   {
     id: 'slot-5',
@@ -93,7 +105,7 @@ export const DAILY_NOTIFICATION_SLOTS: DailyNotificationSlot[] = [
     targetMl: 500,
     doseNumber: 5,
     title: '🌅 5ª Dose: Reta Final do Dia (500 ml)',
-    body: 'Mais 500 ml! Você está a um passo de bater a meta de 3.000 ml hoje. Tire sua foto!',
+    body: 'Quase lá! Faltam apenas 500 ml para completar sua meta diária de 3.000 ml.',
   },
   {
     id: 'slot-6',
@@ -102,13 +114,13 @@ export const DAILY_NOTIFICATION_SLOTS: DailyNotificationSlot[] = [
     minutes: 30,
     targetMl: 500,
     doseNumber: 6,
-    title: '🏆 6ª Dose: Conclusão da Meta de 3.000 ml (500 ml)',
-    body: 'Última dose do dia! Complete seus 3.000 ml de hidratação e encerre com chave de ouro!',
+    title: '🏆 6ª Dose: Meta Diária Concluída (500 ml)',
+    body: 'Última dose do dia! Complete seus 3.000 ml e feche seu streak com chave de ouro.',
   },
 ];
 
-// Active photo registration window duration after scheduled time
-const WINDOW_DURATION_MINUTES = 45;
+const COOLDOWN_INTERVAL_MINUTES = 60; // 1 hour interval between photo registrations
+const MAX_PHOTOS_PER_DAY = 6; // exactly 6 photos allowed per day
 
 class NotificationManager {
   private swRegistration: ServiceWorkerRegistration | null = null;
@@ -117,12 +129,14 @@ class NotificationManager {
   private windowListeners: Set<WindowListener> = new Set();
   private reminderTimerId: number | null = null;
 
-  // Notification & goal state
+  // Settings & state
   private enabled: boolean = true;
   private currentIntakeMl: number = 0;
   private dailyGoalMl: number = 3000;
-  private testWindowExpiresAt: number | null = null;
-  private lastNotificationTimestamp: number | null = null;
+  private photosTakenToday: number = 0;
+  private lastPhotoTimestamp: number | null = null;
+  private lastActiveDate: string = new Date().toDateString();
+  private isBypassed: boolean = false;
   private triggeredSlotsToday: Set<string> = new Set();
 
   constructor() {
@@ -132,8 +146,19 @@ class NotificationManager {
     }
   }
 
+  private checkAndResetDaily() {
+    const today = new Date().toDateString();
+    if (this.lastActiveDate !== today) {
+      this.lastActiveDate = today;
+      this.photosTakenToday = 0;
+      this.triggeredSlotsToday.clear();
+      this.saveSettings();
+    }
+  }
+
   private loadSettings() {
     try {
+      this.checkAndResetDaily();
       const savedEnabled = localStorage.getItem('hidrago_notifications_enabled');
       if (savedEnabled !== null) {
         this.enabled = savedEnabled === 'true';
@@ -142,9 +167,13 @@ class NotificationManager {
       if (savedGoal) {
         this.dailyGoalMl = parseInt(savedGoal, 10) || 3000;
       }
-      const savedLastNotif = localStorage.getItem('hidrago_last_notif_time');
-      if (savedLastNotif) {
-        this.lastNotificationTimestamp = parseInt(savedLastNotif, 10) || null;
+      const savedPhotosCount = localStorage.getItem('hidrago_photos_today');
+      if (savedPhotosCount) {
+        this.photosTakenToday = parseInt(savedPhotosCount, 10) || 0;
+      }
+      const savedLastPhoto = localStorage.getItem('hidrago_last_photo_timestamp');
+      if (savedLastPhoto) {
+        this.lastPhotoTimestamp = parseInt(savedLastPhoto, 10) || null;
       }
       const savedTriggered = localStorage.getItem('hidrago_triggered_slots_today');
       if (savedTriggered) {
@@ -154,7 +183,7 @@ class NotificationManager {
         }
       }
     } catch {
-      // Ignore storage errors in sandboxed contexts
+      // safe fallback
     }
   }
 
@@ -162,15 +191,19 @@ class NotificationManager {
     try {
       localStorage.setItem('hidrago_notifications_enabled', String(this.enabled));
       localStorage.setItem('hidrago_daily_goal', String(this.dailyGoalMl));
-      if (this.lastNotificationTimestamp) {
-        localStorage.setItem('hidrago_last_notif_time', String(this.lastNotificationTimestamp));
+      localStorage.setItem('hidrago_photos_today', String(this.photosTakenToday));
+      if (this.lastPhotoTimestamp) {
+        localStorage.setItem('hidrago_last_photo_timestamp', String(this.lastPhotoTimestamp));
+      } else {
+        localStorage.removeItem('hidrago_last_photo_timestamp');
       }
+      localStorage.setItem('hidrago_active_date', this.lastActiveDate);
       localStorage.setItem(
         'hidrago_triggered_slots_today',
         JSON.stringify(Array.from(this.triggeredSlotsToday))
       );
     } catch {
-      // Ignore
+      // safe
     }
   }
 
@@ -188,7 +221,7 @@ class NotificationManager {
           }
         });
       } catch (err) {
-        console.warn('[HidraGo SW] Service worker registration failed:', err);
+        console.warn('[HidraGo SW] Service worker registration:', err);
       }
     }
 
@@ -210,7 +243,6 @@ class NotificationManager {
     if (!this.isSupported()) {
       return 'unsupported';
     }
-
     try {
       const permission = await Notification.requestPermission();
       this.notifyPermissionChanged(permission as NotificationPermissionState);
@@ -237,7 +269,6 @@ class NotificationManager {
 
   public onWindowStateChange(callback: WindowListener): () => void {
     this.windowListeners.add(callback);
-    // Send current status immediately
     callback(this.getWindowStatus());
     return () => this.windowListeners.delete(callback);
   }
@@ -247,14 +278,13 @@ class NotificationManager {
     this.windowListeners.forEach((listener) => listener(status));
   }
 
-  // Update user water intake and daily goal (synced from App state)
   public updateUserState(currentIntakeMl: number, dailyGoalMl: number = 3000) {
+    this.checkAndResetDaily();
     const prevGoalMet = this.isGoalReached();
     this.currentIntakeMl = currentIntakeMl;
     this.dailyGoalMl = dailyGoalMl;
     this.saveSettings();
 
-    // If goal status changed, notify listeners
     if (prevGoalMet !== this.isGoalReached()) {
       this.notifyWindowChanged();
     }
@@ -279,77 +309,108 @@ class NotificationManager {
     this.notifyWindowChanged();
   }
 
-  // Calculate current notification window status for photo capture
-  public getWindowStatus(): NotificationWindowStatus {
-    const now = new Date();
-    const currentHours = now.getHours();
-    const currentMinutes = now.getMinutes();
-    const currentTotalMinutes = currentHours * 60 + currentMinutes;
+  // Record that a photo was taken: increments daily count, starts 1h cooldown timer
+  public recordPhotoRegistration(amountMl: number = 500) {
+    this.checkAndResetDaily();
+    this.photosTakenToday = Math.min(MAX_PHOTOS_PER_DAY, this.photosTakenToday + 1);
+    this.lastPhotoTimestamp = Date.now();
+    this.isBypassed = false;
+    this.saveSettings();
+    this.notifyWindowChanged();
+  }
 
+  // Test helper: bypasses cooldown timer so testing is instantaneous
+  public bypassCooldownForTesting() {
+    this.isBypassed = true;
+    this.notifyWindowChanged();
+  }
+
+  public openTestWindow(_minutes = 30) {
+    this.bypassCooldownForTesting();
+  }
+
+  // Reset daily photos for testing
+  public resetPhotosForTesting() {
+    this.photosTakenToday = 0;
+    this.lastPhotoTimestamp = null;
+    this.isBypassed = false;
+    this.saveSettings();
+    this.notifyWindowChanged();
+  }
+
+  // Calculate current photo registration status
+  public getPhotoRegistrationStatus(): PhotoRegistrationStatus {
+    this.checkAndResetDaily();
     const isGoalMet = this.isGoalReached();
-    const isTestMode =
-      this.testWindowExpiresAt !== null && Date.now() < this.testWindowExpiresAt;
+    const photosRemainingToday = Math.max(0, MAX_PHOTOS_PER_DAY - this.photosTakenToday);
 
-    // Check recent notification within last 30 minutes
-    const isRecentNotifWindow =
-      this.lastNotificationTimestamp !== null &&
-      Date.now() - this.lastNotificationTimestamp < 30 * 60 * 1000;
-
-    let activeSlot: DailyNotificationSlot | null = null;
-    let minutesRemainingInActiveWindow = 0;
-
-    if (isTestMode && this.testWindowExpiresAt) {
-      minutesRemainingInActiveWindow = Math.max(
-        1,
-        Math.ceil((this.testWindowExpiresAt - Date.now()) / (60 * 1000))
-      );
-      activeSlot = {
-        id: 'slot-test',
-        time: 'Agora',
-        hours: currentHours,
-        minutes: currentMinutes,
-        targetMl: 500,
-        doseNumber: Math.min(6, Math.floor(this.currentIntakeMl / 500) + 1),
-        title: '⚡ Janela de Notificação Simulada (500 ml)',
-        body: 'Janela de teste ativada para você registrar a foto agora!',
+    // Rule 1: Limit to 6 photos per day
+    if (this.photosTakenToday >= MAX_PHOTOS_PER_DAY) {
+      return {
+        canTakePhoto: this.isBypassed,
+        reason: 'max_reached',
+        photosTakenToday: this.photosTakenToday,
+        maxPhotosPerDay: MAX_PHOTOS_PER_DAY,
+        photosRemainingToday: 0,
+        minutesUntilNextPhoto: 0,
+        lastPhotoTimestamp: this.lastPhotoTimestamp,
+        isGoalMet,
+        isBypassed: this.isBypassed,
+        currentIntakeMl: this.currentIntakeMl,
+        dailyGoalMl: this.dailyGoalMl,
       };
-    } else if (isRecentNotifWindow && this.lastNotificationTimestamp) {
-      const remainingMs = 30 * 60 * 1000 - (Date.now() - this.lastNotificationTimestamp);
-      minutesRemainingInActiveWindow = Math.max(1, Math.ceil(remainingMs / (60 * 1000)));
-      activeSlot = {
-        id: 'slot-recent',
-        time: 'Recente',
-        hours: currentHours,
-        minutes: currentMinutes,
-        targetMl: 500,
-        doseNumber: Math.min(6, Math.floor(this.currentIntakeMl / 500) + 1),
-        title: '💧 Janela de Notificação Ativa (500 ml)',
-        body: 'Notificação recebida recentemente. Janela de foto aberta!',
-      };
-    } else {
-      // Check if current time falls within any of the 6 scheduled slots
-      for (const slot of DAILY_NOTIFICATION_SLOTS) {
-        const slotTotalMinutes = slot.hours * 60 + slot.minutes;
-        if (
-          currentTotalMinutes >= slotTotalMinutes &&
-          currentTotalMinutes < slotTotalMinutes + WINDOW_DURATION_MINUTES
-        ) {
-          activeSlot = slot;
-          minutesRemainingInActiveWindow =
-            slotTotalMinutes + WINDOW_DURATION_MINUTES - currentTotalMinutes;
-          break;
-        }
+    }
+
+    // Rule 2: 1 hour interval between each photo
+    if (this.lastPhotoTimestamp && !this.isBypassed) {
+      const elapsedMinutes = (Date.now() - this.lastPhotoTimestamp) / (60 * 1000);
+      if (elapsedMinutes < COOLDOWN_INTERVAL_MINUTES) {
+        const minutesUntilNext = Math.max(1, Math.ceil(COOLDOWN_INTERVAL_MINUTES - elapsedMinutes));
+        return {
+          canTakePhoto: false,
+          reason: 'cooldown',
+          photosTakenToday: this.photosTakenToday,
+          maxPhotosPerDay: MAX_PHOTOS_PER_DAY,
+          photosRemainingToday,
+          minutesUntilNextPhoto: minutesUntilNext,
+          lastPhotoTimestamp: this.lastPhotoTimestamp,
+          isGoalMet,
+          isBypassed: false,
+          currentIntakeMl: this.currentIntakeMl,
+          dailyGoalMl: this.dailyGoalMl,
+        };
       }
     }
 
-    // Find the next upcoming scheduled slot
+    // Ready to take photo!
+    return {
+      canTakePhoto: true,
+      reason: 'ready',
+      photosTakenToday: this.photosTakenToday,
+      maxPhotosPerDay: MAX_PHOTOS_PER_DAY,
+      photosRemainingToday,
+      minutesUntilNextPhoto: 0,
+      lastPhotoTimestamp: this.lastPhotoTimestamp,
+      isGoalMet,
+      isBypassed: this.isBypassed,
+      currentIntakeMl: this.currentIntakeMl,
+      dailyGoalMl: this.dailyGoalMl,
+    };
+  }
+
+  // Full status combining photo registration with scheduled slots for UI
+  public getWindowStatus(): NotificationWindowStatus {
+    const photoStatus = this.getPhotoRegistrationStatus();
+    const now = new Date();
+    const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
+
     let nextSlot: DailyNotificationSlot | null = null;
     let minutesUntilNext = Infinity;
 
     for (const slot of DAILY_NOTIFICATION_SLOTS) {
-      const slotTotalMinutes = slot.hours * 60 + slot.minutes;
-      if (slotTotalMinutes > currentTotalMinutes) {
-        const diff = slotTotalMinutes - currentTotalMinutes;
+      const slotMinutes = slot.hours * 60 + slot.minutes;
+      if (slotMinutes > currentTotalMinutes) {
+        const diff = slotMinutes - currentTotalMinutes;
         if (diff < minutesUntilNext) {
           minutesUntilNext = diff;
           nextSlot = slot;
@@ -357,61 +418,35 @@ class NotificationManager {
       }
     }
 
-    // If all slots passed today, the next one is 08:00 tomorrow
     if (!nextSlot) {
       nextSlot = DAILY_NOTIFICATION_SLOTS[0];
-      const tomorrowTotal = 24 * 60 - currentTotalMinutes + (nextSlot.hours * 60 + nextSlot.minutes);
-      minutesUntilNext = tomorrowTotal;
+      minutesUntilNext = 24 * 60 - currentTotalMinutes + (nextSlot.hours * 60 + nextSlot.minutes);
     }
 
-    // Build status list for all 6 slots
     const slots = DAILY_NOTIFICATION_SLOTS.map((slot) => {
-      const slotTotalMinutes = slot.hours * 60 + slot.minutes;
       let status: 'completed' | 'active' | 'upcoming' | 'missed' = 'upcoming';
-
-      // If user drank enough water for this dose
-      const doseRequirement = slot.doseNumber * 500;
-      if (this.currentIntakeMl >= doseRequirement) {
+      if (this.photosTakenToday >= slot.doseNumber || this.currentIntakeMl >= slot.doseNumber * 500) {
         status = 'completed';
-      } else if (
-        currentTotalMinutes >= slotTotalMinutes &&
-        currentTotalMinutes < slotTotalMinutes + WINDOW_DURATION_MINUTES
-      ) {
+      } else if (photoStatus.canTakePhoto && this.photosTakenToday === slot.doseNumber - 1) {
         status = 'active';
-      } else if (currentTotalMinutes >= slotTotalMinutes + WINDOW_DURATION_MINUTES) {
-        status = 'missed';
       } else {
         status = 'upcoming';
       }
-
       return { slot, status };
     });
 
-    const isOpen = activeSlot !== null;
+    const activeSlot = slots.find((s) => s.status === 'active')?.slot || null;
 
     return {
-      isOpen,
+      ...photoStatus,
+      isOpen: photoStatus.canTakePhoto,
       activeSlot,
       nextSlot,
       minutesUntilNext,
-      minutesRemainingInActiveWindow,
-      isGoalMet,
-      isTestMode,
-      currentIntakeMl: this.currentIntakeMl,
-      dailyGoalMl: this.dailyGoalMl,
+      minutesRemainingInActiveWindow: photoStatus.canTakePhoto ? 60 : 0,
+      isTestMode: photoStatus.isBypassed,
       slots,
     };
-  }
-
-  // Open a temporary testing window so the user/evaluator can register a photo anytime
-  public openTestWindow(minutes: number = 30) {
-    this.testWindowExpiresAt = Date.now() + minutes * 60 * 1000;
-    this.notifyWindowChanged();
-  }
-
-  public closeTestWindow() {
-    this.testWindowExpiresAt = null;
-    this.notifyWindowChanged();
   }
 
   // Push notification sender
@@ -433,33 +468,25 @@ class NotificationManager {
     isAutomatedSchedule?: boolean;
   }) {
     // RULE: "Caso o usuário já tenha batido a meta, não notifique mais."
-    if (isAutomatedSchedule && this.isGoalReached()) {
-      console.log(
-        `[HidraGo Notifications] Meta diária de ${this.dailyGoalMl} ml já foi batida (${this.currentIntakeMl} ml)! Notificação automática suprimida.`
-      );
+    if (isAutomatedSchedule && (this.isGoalReached() || this.photosTakenToday >= MAX_PHOTOS_PER_DAY)) {
+      console.log('[HidraGo Notifications] Meta batida ou 6 fotos atingidas. Notificação suprimida.');
       return false;
     }
 
-    // Record notification timestamp and unlock photo window
-    this.lastNotificationTimestamp = Date.now();
-    this.saveSettings();
-    this.notifyWindowChanged();
-
-    // 1. Play audio chime
     try {
       sounds.playWaterDrop();
     } catch {
       // safe
     }
 
-    // 2. Trigger In-App visual toast
+    // In-App Notification Toast
     const inAppItem: InAppNotification = {
       id: 'notif-' + Date.now(),
       title,
       body,
       icon,
       timestamp: new Date(),
-      actionText: actionText || '📸 Registrar Foto Agora',
+      actionText: actionText || '📸 Tirar Foto da Garrafa',
       onAction:
         onAction ||
         (() => {
@@ -468,7 +495,7 @@ class NotificationManager {
     };
     this.inAppListeners.forEach((listener) => listener(inAppItem));
 
-    // 3. Try OS Native Push Notification
+    // OS Push Notification
     if (this.isSupported() && Notification.permission === 'granted') {
       try {
         if (this.swRegistration && 'showNotification' in this.swRegistration) {
@@ -484,11 +511,7 @@ class NotificationManager {
           await this.swRegistration.showNotification(title, swOptions);
           return true;
         } else {
-          new Notification(title, {
-            body,
-            icon,
-            tag,
-          });
+          new Notification(title, { body, icon, tag });
           return true;
         }
       } catch (err) {
@@ -503,12 +526,10 @@ class NotificationManager {
     this.stopSchedulerLoop();
     if (!this.enabled) return;
 
-    // Check scheduled slots every 30 seconds
     this.reminderTimerId = window.setInterval(() => {
       if (!this.enabled) return;
 
-      // RULE: Do not notify if daily goal is already met
-      if (this.isGoalReached()) {
+      if (this.isGoalReached() || this.photosTakenToday >= MAX_PHOTOS_PER_DAY) {
         return;
       }
 
@@ -516,7 +537,6 @@ class NotificationManager {
       const currentHours = now.getHours();
       const currentMinutes = now.getMinutes();
 
-      // Check each of the 6 daily slots
       for (const slot of DAILY_NOTIFICATION_SLOTS) {
         if (slot.hours === currentHours && slot.minutes === currentMinutes) {
           const todayKey = `${now.toDateString()}_${slot.id}`;
@@ -528,7 +548,7 @@ class NotificationManager {
               title: slot.title,
               body: slot.body,
               tag: `hidrago-slot-${slot.id}`,
-              actionText: '📸 Abrir Câmera (500 ml)',
+              actionText: '📸 Abrir Câmera',
               isAutomatedSchedule: true,
               onAction: () => {
                 window.dispatchEvent(new CustomEvent('hidrago:open_camera'));
@@ -549,19 +569,16 @@ class NotificationManager {
     }
   }
 
-  // Trigger test notification (also opens the photo window so the user can test the camera)
   public triggerTestNotification() {
-    this.openTestWindow(30);
-
     const goalMetText = this.isGoalReached()
-      ? ' (Nota: Sua meta diária de 3.000 ml já está concluída hoje!)'
+      ? ' (Meta diária de 3.000 ml já concluída!)'
       : '';
 
     return this.sendPushNotification({
-      title: '💧 Notificação de Hidratação HidraGo (Teste)',
-      body: `Hora da dose de 500 ml! A janela de registro por fotos foi aberta por 30 minutos.${goalMetText}`,
+      title: '💧 Notificação Push HidraGo',
+      body: `Hora de beber água e registrar sua foto! Você tem ${Math.max(0, MAX_PHOTOS_PER_DAY - this.photosTakenToday)} fotos disponíveis hoje.${goalMetText}`,
       tag: 'test-notification',
-      actionText: '📸 Registrar Foto Agora',
+      actionText: '📸 Tirar Foto da Garrafa',
       onAction: () => {
         window.dispatchEvent(new CustomEvent('hidrago:open_camera'));
       },
